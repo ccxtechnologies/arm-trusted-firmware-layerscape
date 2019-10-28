@@ -20,41 +20,64 @@
 #include <utils_def.h>
 #include <errata.h>
 
-static const struct rc_timing rce[] = {
-	{1600, 8, 7},
-	{1867, 8, 7},
-	{2134, 8, 9},
-	{}
+const struct ddr_cfg_regs static_1500 = {
+	.cs[0].bnds = 0xFF,
+	.cs[0].config = 0x80010322,
+	.cs[0].config_2 = 0x00,
+	.timing_cfg[0] = 0xDA550018,
+	.timing_cfg[1] = 0xBBB48E34,
+	.timing_cfg[2] = 0x00491111,
+	.timing_cfg[3] = 0x010C1000,
+	.timing_cfg[4] = 0x00220001,
+	.timing_cfg[5] = 0x03401400,
+	.timing_cfg[7] = 0x13340000,
+	.timing_cfg[8] = 0x00335800,
+	.sdram_cfg[0] = 0x45200000,
+	.sdram_cfg[1] = 0x00401070,
+	.sdram_cfg[2] = 0x00,
+	.sdram_mode[0] = 0x01010211,
+	.sdram_mode[1] = 0x00,
+	.sdram_mode[2] = 0x00,
+	.sdram_mode[3] = 0x00,
+	.sdram_mode[4] = 0x00,
+	.sdram_mode[5] = 0x00,
+	.sdram_mode[6] = 0x00,
+	.sdram_mode[7] = 0x00,
+	.sdram_mode[8] = 0x0701,
+	.sdram_mode[9] = 0x04800000,
+	.sdram_mode[10] = 0x00,
+	.sdram_mode[11] = 0x00,
+	.sdram_mode[12] = 0x00,
+	.sdram_mode[13] = 0x00,
+	.sdram_mode[14] = 0x00,
+	.sdram_mode[15] = 0x00,
+	.md_cntl = 0x00,
+	.interval = 0x18600618,
+	.data_init = 0xDEADBEEF,
+	.clk_cntl = 0x02800000,
+	.init_addr = 0x00,
+	.init_ext_addr = 0x00,
+	.zq_cntl = 0x8A090705,
+	.wrlvl_cntl[0] = 0x8655F609,
+	.wrlvl_cntl[1] = 0x00,
+	.wrlvl_cntl[2] = 0x00,
+	.sdram_rcw[0] = 0x00,
+	.sdram_rcw[1] = 0x00,
+	.sdram_rcw[2] = 0x00,
+	.sdram_rcw[3] = 0x00,
+	.sdram_rcw[4] = 0x00,
+	.sdram_rcw[5] = 0x00,
+	.cdr[0] = 0x80040000,
+	.cdr[1] = 0x81,
+	.err_disable = 0x00,
+	.err_int_en = 0x1D,
+	.debug[28] = 0x46, /* cpo_sample for A009942 */
 };
 
-static const struct board_timing udimm[] = {
-	{0x04, rce, 0x01020304, 0x06070805},
-};
-
-int ddr_board_options(struct ddr_info *priv)
+long long board_static_ddr(struct ddr_info *priv)
 {
-	int ret;
-	struct memctl_opt *popts = &priv->opt;
-
-	if (popts->rdimm) {
-		debug("RDIMM parameters not set.\n");
-		return -EINVAL;
-	}
-
-	ret = cal_board_params(priv, udimm, ARRAY_SIZE(udimm));
-	if (ret)
-		return ret;
-
-	popts->wrlvl_override = 1;
-	popts->wrlvl_sample = 0x0;	/* 32 clocks */
-	popts->cpo_sample = 0x61;
-	popts->ddr_cdr1 = DDR_CDR1_DHC_EN	|
-			  DDR_CDR1_ODT(DDR_CDR_ODT_80ohm);
-	popts->ddr_cdr2 = DDR_CDR2_ODT(DDR_CDR_ODT_80ohm)	|
-			  DDR_CDR2_VREF_TRAIN_EN		|
-			  DDR_CDR2_VREF_RANGE_2;
-
-	return 0;
+	memcpy(&priv->ddr_reg, &static_1500, sizeof(struct ddr_cfg_regs));
+	return 0x100000000UL;
 }
 
 long long _init_ddr(void)

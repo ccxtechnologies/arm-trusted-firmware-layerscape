@@ -7,7 +7,7 @@
 #	Pankaj Gupta <pankaj.gupta@nxp.com>
 
 # board-specific build parameters
-BOOT_MODE	:= qspi
+BOOT_MODE	:= sd
 BOARD		:= ccx
 
  # get SoC common build parameters

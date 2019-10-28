@@ -47,6 +47,8 @@
 
 #define NXP_QSPI_FLASH_SIZE	0x4000000
 
+#define CONFIG_STATIC_DDR	1
+
 /* TBD Put all memory specific defines here */
 
 /******************************************************************************
