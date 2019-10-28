@@ -71,7 +71,7 @@ const struct ddr_cfg_regs static_1500 = {
 	.cdr[1] = 0x81,
 	.err_disable = 0x00,
 	.err_int_en = 0x1D,
-	.debug[28] = 0x46, /* cpo_sample for A009942 */
+	.debug[28] = 0x37,
 };
 
 long long board_static_ddr(struct ddr_info *priv)
