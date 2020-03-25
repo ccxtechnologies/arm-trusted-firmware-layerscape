@@ -56,14 +56,10 @@
  *****************************************************************************/
 
 /* Size of cacheable stacks */
-#if defined(IMAGE_BL2)
 #define PLATFORM_STACK_SIZE	0x1000
-#elif defined(IMAGE_BL31)
-#define PLATFORM_STACK_SIZE	0x1000
-#endif
 
-#define FIRMWARE_WELCOME_STR_LS_BL2	"==> BL2\n"
-#define FIRMWARE_WELCOME_STR_LS_BL31	"==> BL31\n"
+#define FIRMWARE_WELCOME_STR_LS_BL2	"BL2: Started\n"
+#define FIRMWARE_WELCOME_STR_LS_BL31	"BL31: Started\n"
 
 /* This is common for all platforms where
  * 64K is reserved for Secure memory
