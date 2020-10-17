@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 NXP
+ * Copyright 2018-2019 NXP
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -417,7 +417,7 @@ _soc_core_prep_off:
     bic  x1, x1, #CPUECTLR_DAT_PREFETCH_MASK
      /* set retention control in cpuectlr */
     bic  x1, x1, #CPUECTLR_TIMER_MASK
-    orr  x1, x1, #CPUECTLR_TIMER_8TICKS
+    orr  x1, x1, #CPUECTLR_TIMER_2TICKS
     msr  CPUECTLR_EL1, x1
 
      /* get redistributor rd base addr for this core */
@@ -655,21 +655,18 @@ _soc_sys_reset:
   */
 _soc_sys_off:
 
-     /* A-009810: LPM20 entry sequence might cause
-      * spurious timeout reset request
-      * workaround: MASK RESET REQ RPTOE
-      */
-    ldr  x0, =NXP_RESET_ADDR
-    ldr  w1, =RSTRQMR_RPTOE_MASK
-    str  w1, [x0, #RST_RSTRQMR1_OFFSET]
-
-     /* disable sec, spi and qspi
+     /* disable sec, spi and flexspi
       * TBD - Check if eNETC needs to be disabled
-       */
+      */
     ldr  x2, =NXP_DCFG_ADDR
     ldr  x0, =DCFG_DEVDISR1_OFFSET
     ldr  w1, =DCFG_DEVDISR1_SEC
     str  w1, [x2, x0]
+#if 0
+    ldr  x0, =DCFG_DEVDISR2_OFFSET
+    ldr  w1, =DCFG_DEVDISR2_ENETC
+    str  w1, [x2, x0]
+#endif
     ldr  x0, =DCFG_DEVDISR4_OFFSET
     ldr  w1, =DCFG_DEVDISR4_SPI_QSPI
     str  w1, [x2, x0]
@@ -688,46 +685,50 @@ _soc_sys_off:
      /* disable L2 prefetches */
     mrs  x0, CPUECTLR_EL1
     orr  x0, x0, #CPUECTLR_SMPEN_EN
-    orr  x0, x0, #CPUECTLR_TIMER_8TICKS
+    bic  x0, x0, #CPUECTLR_TIMER_MASK
+    orr  x0, x0, #CPUECTLR_TIMER_2TICKS
     msr  CPUECTLR_EL1, x0
     dsb  sy
     isb
 
-     /* disable CCN snoop domain */
+     /* disable CCI snoop domain */
     ldr  x0, =NXP_CCI_ADDR
     mov  w1, #0x1
     str  w1, [x0]
 
-    mov  x3, #NXP_PMU_ADDR
-
-     /* x3 = pmu base addr */
+    bl get_pmu_idle_core_mask
+    /* x3 = pmu base addr */
+    mov  x3, #NXP_PMU_ADDR   
 
 4:
     ldr  w1, [x3, #PMU_PCPW20SR_OFFSET]
-    cmp  w1, #PMU_IDLE_CORE_MASK
+    cmp  w1, w0
     b.ne 4b
 
-	mov  w1, #PMU_IDLE_CLUSTER_MASK
-    str  w1, [x3, #PMU_CLAINACTSETR_OFFSET]
+    bl get_pmu_idle_cluster_mask
+    mov  x3, #NXP_PMU_ADDR
+    str  w0, [x3, #PMU_CLAINACTSETR_OFFSET]
+
+    bl get_pmu_idle_core_mask
+    mov  x3, #NXP_PMU_ADDR
 
 1:
     ldr  w1, [x3, #PMU_PCPW20SR_OFFSET]
-    cmp  w1, #PMU_IDLE_CORE_MASK
+    cmp  w1, w0
     b.ne 1b
 
-	mov  w1, #PMU_FLUSH_CLUSTER_MASK
-    str  w1, [x3, #PMU_CLL2FLUSHSETR_OFFSET]
+    bl get_pmu_flush_cluster_mask
+    mov  x3, #NXP_PMU_ADDR
+    str  w0, [x3, #PMU_CLL2FLUSHSETR_OFFSET]
 
 2:
     ldr  w1, [x3, #PMU_CLL2FLUSHSR_OFFSET]
-    cmp  w1, #PMU_FLUSH_CLUSTER_MASK
+    cmp  w1, w0
     b.ne 2b
 
-	mov  w1, #PMU_FLUSH_CLUSTER_MASK
-    str  w1, [x3, #PMU_CLSL2FLUSHCLRR_OFFSET]
+    str  w0, [x3, #PMU_CLSL2FLUSHCLRR_OFFSET]
 
-	mov  w1, #PMU_FLUSH_CLUSTER_MASK
-    str  w1, [x3, #PMU_CLSINACTSETR_OFFSET]
+    str  w0, [x3, #PMU_CLSINACTSETR_OFFSET]
 
     mov  x2, #DAIF_SET_MASK
     mrs  x1, spsr_el1
@@ -754,6 +755,8 @@ _soc_sys_off:
     ldr  x0, =PMU_POWMGTCSR_OFFSET
     ldr  w1, =PMU_POWMGTCSR_VAL
     str  w1, [x3, x0]
+    isb
+    dsb sy
 
 5:
     wfe
@@ -831,7 +834,7 @@ _soc_core_prep_pwrdn:
       */
     mrs  x1, CPUECTLR_EL1
     bic  x1, x1, #CPUECTLR_RET_MASK
-    orr  x1, x1, #CPUECTLR_TIMER_8TICKS
+    orr  x1, x1, #CPUECTLR_TIMER_2TICKS
     orr  x1, x1, #CPUECTLR_SMPEN_EN
     msr  CPUECTLR_EL1, x1
 
@@ -922,7 +925,7 @@ _soc_clstr_prep_pwrdn:
       */
     mrs  x1, CPUECTLR_EL1
     bic  x1, x1, #CPUECTLR_RET_MASK
-    orr  x1, x1, #CPUECTLR_TIMER_8TICKS
+    orr  x1, x1, #CPUECTLR_TIMER_2TICKS
     orr  x1, x1, #CPUECTLR_SMPEN_EN
     msr  CPUECTLR_EL1, x1
 
@@ -984,7 +987,7 @@ _soc_sys_prep_pwrdn:
      /* set retention control */
     mrs  x0, CPUECTLR_EL1
     bic  x0, x0, #CPUECTLR_TIMER_MASK
-    orr  x0, x0, #CPUECTLR_TIMER_8TICKS
+    orr  x0, x0, #CPUECTLR_TIMER_2TICKS
     orr  x0, x0, #CPUECTLR_SMPEN_EN
     msr  CPUECTLR_EL1, x0
     dsb  sy
@@ -995,7 +998,6 @@ _soc_sys_prep_pwrdn:
 
 /*---------------------------------------------------------------------------*/
 
-#if 0
  /* part of CPU_SUSPEND
   * this function puts the calling core, and potentially the soc, into a
   * low-power state
@@ -1072,19 +1074,16 @@ _soc_sys_pwrdn_wfi:
 
      /* x3 = pmu base addr */
 
-     /* A-009810: LPM20 entry sequence might cause
-      * spurious timeout reset request
-      * workaround: MASK RESET REQ RPTOE
-      */
-    ldr  x0, =NXP_RESET_ADDR
-    ldr  w1, =RSTRQMR_RPTOE_MASK
-    str  w1, [x0, #RST_RSTRQMR1_OFFSET]
-
      /* disable sec, Check for eNETC, spi and qspi */
     ldr  x2, =NXP_DCFG_ADDR
     ldr  x0, =DCFG_DEVDISR1_OFFSET
     ldr  w1, =DCFG_DEVDISR1_SEC
     str  w1, [x2, x0]
+#if 0
+    ldr  x0, =DCFG_DEVDISR2_OFFSET
+    ldr  w1, =DCFG_DEVDISR2_ENETC
+    str  w1, [x2, x0]
+#endif
     ldr  x0, =DCFG_DEVDISR4_OFFSET
     ldr  w1, =DCFG_DEVDISR4_SPI_QSPI
     str  w1, [x2, x0]
@@ -1096,7 +1095,7 @@ _soc_sys_pwrdn_wfi:
     mov  w1, #0x1
     str  w1, [x0]
 
-     /* disable CCN snoop domain */
+     /* disable CCI snoop domain */
     ldr  x0, =NXP_CCI_ADDR
     mov  w1, #0x1
     str  w1, [x0]
@@ -1104,48 +1103,54 @@ _soc_sys_pwrdn_wfi:
      // setup retention control
     mrs  x0, CPUECTLR_EL1
     orr  x0, x0, #CPUECTLR_SMPEN_EN
-    orr  x0, x0, #CPUECTLR_TIMER_8TICKS
+    orr  x0, x0, #CPUECTLR_TIMER_2TICKS
     msr  CPUECTLR_EL1, x0
     dsb  sy
     isb
 
+    bl get_pmu_idle_core_mask
+    mov  x3, #NXP_PMU_ADDR
 
-    mov  x0, #NXP_PMU_ADDR
 8:
-    ldr  w1, [x0, #PMU_PCPW20SR_OFFSET]
-    cmp  w1, #PMU_IDLE_CORE_MASK
+    ldr  w1, [x3, #PMU_PCPW20SR_OFFSET]
+    cmp  w1, w0
     b.ne 8b
 
-     /* x0 = NXP_PMU_ADDR */
+     /* x3 = NXP_PMU_ADDR */
+     /* 1 cluster SoC */
 
-    mov  w1, #PMU_IDLE_CLUSTER_MASK
-    str  w1, [x0, #PMU_CLAINACTSETR_OFFSET]
+    bl get_pmu_idle_cluster_mask
+    mov  x3, #NXP_PMU_ADDR
 
-     /* x0 = NXP_PMU_ADDR */
+    str  w0, [x3, #PMU_CLAINACTSETR_OFFSET]
+
+    bl get_pmu_idle_core_mask
+     /* x3 = NXP_PMU_ADDR */
+    mov  x3, #NXP_PMU_ADDR
+
 1:
-    ldr  w1, [x0, #PMU_PCPW20SR_OFFSET]
-    cmp  w1, #PMU_IDLE_CORE_MASK
+    ldr  w1, [x3, #PMU_PCPW20SR_OFFSET]
+    cmp  w1, w0
     b.ne 1b
 
-     /* x0 = NXP_PMU_ADDR */
+     /* x3 = NXP_PMU_ADDR */
+    bl get_pmu_flush_cluster_mask
+    mov  x3, #NXP_PMU_ADDR
 
-    mov  w1, #PMU_FLUSH_CLUSTER_MASK
-    str  w1, [x0, #PMU_CLL2FLUSHSETR_OFFSET]
+    str  w0, [x3, #PMU_CLL2FLUSHSETR_OFFSET]
 
-     /* x0 = NXP_PMU_ADDR */
+     /* x3 = NXP_PMU_ADDR */
 
 2:
-    ldr  w1, [x0, #PMU_CLL2FLUSHSR_OFFSET]
-    cmp  w1, #PMU_FLUSH_CLUSTER_MASK
+    ldr  w1, [x3, #PMU_CLL2FLUSHSR_OFFSET]
+    cmp  w1, w0
     b.ne 2b
 
-     /* x0 = NXP_PMU_ADDR */
+     /* x3 = NXP_PMU_ADDR */
 
-    mov  w1, #PMU_FLUSH_CLUSTER_MASK
-    str  w1, [x0, #PMU_CLSL2FLUSHCLRR_OFFSET]
+    str  w0, [x3, #PMU_CLSL2FLUSHCLRR_OFFSET]
 
-    mov  w1, #PMU_FLUSH_CLUSTER_MASK
-    str  w1, [x0, #PMU_CLSINACTSETR_OFFSET]
+    str  w0, [x3, #PMU_CLSINACTSETR_OFFSET]
 
      /* force the debug interface to be quiescent */
     mrs  x0, osdlr_el1
@@ -1153,23 +1158,25 @@ _soc_sys_pwrdn_wfi:
     msr  osdlr_el1, x0
 
      /* enable the WakeRequest signal
-      * x3 is cpu mask starting from cpu0
+      * x3 is cpu mask starting from cpu1 to cpu0
       */
+    bl get_tot_num_cores
+    sub  x0, x0, #1
     mov  x3, #0x1
+    lsl  x3, x3, x0
 2:
-    mov x0, x3
+    mov  x0, x3
     bl   get_gic_rd_base  // 0-2
-    ldr  w1, [x0, #0x14]
-    orr  w1, w1, #0x2
-    str  w1, [x0, #0x14]
+    ldr  w1, [x0, #GICR_WAKER_OFFSET]
+    orr  w1, w1, #GICR_WAKER_SLEEP_BIT
+    str  w1, [x0, #GICR_WAKER_OFFSET]
 1:
-    ldr  w1, [x0, #0x14]
-    cmp  w1, #0x6
+    ldr  w1, [x0, #GICR_WAKER_OFFSET]
+    cmp  w1, #GICR_WAKER_ASLEEP
     b.ne 1b
 
-    lsl  x3, x3, #1
-    cmp  x3, #0x100
-    b.ne 2b
+    lsr  x3, x3, #1
+    cbnz x3, 2b
 
      /* invalidate all TLB entries at all 3 exception levels */
     tlbi alle1
@@ -1192,10 +1199,11 @@ _soc_sys_pwrdn_wfi:
 
      /* x3 = NXP_PMU_ADDR */
 
+    bl get_pmu_idle_cluster_mask
+    mov x3, NXP_PMU_ADDR
      /* Re-enable the GPP ACP */
-    ldr  w1, =PMU_IDLE_CLUSTER_MASK
-    str  w1, [x3, #PMU_CLAINACTCLRR_OFFSET]
-    str  w1, [x3, #PMU_CLSINACTCLRR_OFFSET]
+    str  w0, [x3, #PMU_CLAINACTCLRR_OFFSET]
+    str  w0, [x3, #PMU_CLSINACTCLRR_OFFSET]
 
      /* x3 = NXP_PMU_ADDR */
 3:
@@ -1205,10 +1213,13 @@ _soc_sys_pwrdn_wfi:
     ldr  w1, [x3, #PMU_CLSINACTSETR_OFFSET]
     cbnz w1, 4b
 
-     /* disable the WakeRequest signal on cpu 0-7
-      * x3 is cpu mask starting from cpu7
+     /* Enable the WakeRequest signal on cpu 0-1
+      * x3 is cpu mask starting from cpu1
       */
-    mov  x3, #0x80
+    bl get_tot_num_cores
+    sub  x0, x0, #1
+    mov  x3, #0x1
+    lsl  x3, x3, x0
 2:
     mov x0, x3
     bl   get_gic_rd_base  // 0-2
@@ -1222,7 +1233,7 @@ _soc_sys_pwrdn_wfi:
     lsr  x3, x3, #1
     cbnz x3, 2b
 
-     /* enable CCN snoop domain */
+     /* enable CCI snoop domain */
     ldr  x0, =NXP_CCI_ADDR
     str  wzr, [x0]
     dsb  sy
@@ -1232,10 +1243,10 @@ _soc_sys_pwrdn_wfi:
 
      /* x3 = epu base addr */
 
-     /* enable sec, QBman, spi and qspi */
+     /* enable sec, enetc, spi and qspi */
     ldr  x2, =NXP_DCFG_ADDR
     str  wzr, [x2, #DCFG_DEVDISR1_OFFSET]
-    str  wzr, [x2, #DCFG_DEVDISR3_OFFSET]
+    str  wzr, [x2, #DCFG_DEVDISR2_OFFSET]
     str  wzr, [x2, #DCFG_DEVDISR4_OFFSET]
 
      /* restore flextimer/mmc/usb interrupt router */
@@ -1264,7 +1275,6 @@ _soc_sys_pwrdn_wfi:
     isb
     mov  x30, x18
     ret
-#endif
 /*---------------------------------------------------------------------------*/
 
  /* part of CPU_SUSPEND
@@ -1353,12 +1363,19 @@ initSecMon:
 release_disabled:
     mov  x8, x30
 
+     /* get the number of cpus on this device
+      * Calling the below c function.
+      * No need to Callee saved registers x9-x15,
+      * as these registers are not used by the callee
+      * prior to calling the below C-routine.
+      */
+    bl  get_tot_num_cores
+    mov   x6, x0
+
      /* read COREDISABLESR */
     mov  x0, #NXP_DCFG_ADDR
     ldr  w4, [x0, #DCFG_COREDISABLEDSR_OFFSET]
 
-     /* get the number of cpus on this device */
-    mov   x6, #PLATFORM_CORE_COUNT
 
     mov  x0, #NXP_RESET_ADDR
     ldr  w5, [x0, #BRR_OFFSET]

@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, 2019 NXP
+ * Copyright 2018-2019 NXP
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -124,19 +124,22 @@
 /* bits */
 /* SVR Definition */
 #define SVR_WO_E		0xFFFFFE
-#define SVR_LX2160A		0x873600
-//#define SVR_LX2160AE		0x879200
+#define SVR_LX2160A		0x873601
+#define SVR_LX2120A		0x873621
+#define SVR_LX2080A		0x873603
 
 /*
  * Required LS standard platform porting definitions
  * for CCN-508
  */
-#define PLAT_CLUSTER_TO_CCN_ID_MAP 0,11,12,15,16,27,28,31
+#define PLAT_CLUSTER_TO_CCN_ID_MAP 11,15,27,31,12,28,16,0
+#define PLAT_6CLUSTER_TO_CCN_ID_MAP 11,15,27,31,12,28
 
 /* NXP1046 version info for GIC configuration */
 
 /* Errata */
 #define NXP_ERRATUM_A011396
+#define DDR_PLL_FIX
 
 #define NXP_DDR_PHY_GEN2
 #define NUM_OF_DDRC				2
@@ -149,6 +152,11 @@
 /* Clock Divisors */
 #define NXP_PLATFORM_CLK_DIVIDER	2
 #define NXP_UART_CLK_DIVIDER		4
+
+/* TBD: Need to re-visited */
+#define PMU_IDLE_CLUSTER_MASK         0x2
+#define PMU_FLUSH_CLUSTER_MASK        0x2
+#define PMU_IDLE_CORE_MASK            0xfe
 
  /* pmu register offsets and bitmaps */
 #define PMU_POWMGTDCR0_OFFSET     0xC20

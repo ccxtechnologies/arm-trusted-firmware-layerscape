@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 NXP
+ * Copyright 2018-2019 NXP
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -245,6 +245,10 @@ static void nand_get_params(struct nand_info *nand)
 	nand->bad_marker_loc = (nand->page_size == 512) ?
 				((nand->port_size == 8) ? 0x5 : 0xa) : 0;
 
+	/* check for the device is ONFI complient or not */
+	nand->onfi_dev_flag =
+	   (read_reg(NAND_EVTER_STAT) & NAND_EVTER_STAT_BBI_SRCH_SEL) ? 1 : 0;
+
 	/* NAND Blk serached count for incremental Bad block search cnt */
 	nand->bbs = 0;
 
@@ -450,7 +454,7 @@ int nand_read(uint32_t src_addr, uintptr_t dst, uint32_t size)
 
 		 // iterate the bbt to find the block
 		for (i = 0; i <= nand->bbt_max; i++) {
-			if (nand->bbt[i] == EMPTY_VAL) {
+			if (nand->bbt[i] == EMPTY_VAL_CHECK) {
 				ret = update_bbt(i, pblk, &updated, nand);
 
 				if (ret != 0)
@@ -654,10 +658,10 @@ static int update_bbt(uint32_t idx, uint32_t blk,
 				return ret;
 
 			 // special case block 0 is good then set this flag
-			if (lgb == 0 && gb == 1)
+			if (lgb == 0 && gb == GOOD_BLK)
 				nand->bzero_good = 1;
 
-			if (!gb) {
+			if (gb == BAD_BLK) {
 				if (idx >= BBT_SIZE) {
 					ERROR("NAND BBT Table full\n");
 					return -1;

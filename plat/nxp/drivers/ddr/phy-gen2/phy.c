@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 NXP
+ * Copyright 2018-2020 NXP
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Author York Sun <york.sun@nxp.com>
@@ -25,6 +25,9 @@
 #include "input.h"
 #include "pie.h"
 
+#ifdef DDR_PHY_DEBUG
+#include "messages.h"
+#endif
 
 #define TIMEOUTDEFAULT 500
 #define MAP_PHY_ADDR(pstate, n, instance, offset, c) \
@@ -63,6 +66,11 @@ static uint32_t map_phy_addr_space(uint32_t addr)
 	}
 }
 
+static inline uint8_t get_board_rev(void)
+{
+	return (((*(volatile uint32_t*)(NXP_DCFG_ADDR + DCFG_SVR_OFFSET)) >> 4) & 0x3);
+}
+
 static inline uint16_t *phy_io_addr(void *phy, uint32_t addr)
 {
 	return phy + (map_phy_addr_space(addr) << 2);
@@ -72,7 +80,7 @@ static inline void phy_io_write16(uint16_t *phy, uint32_t addr, uint16_t data)
 {
 	out_le16(phy_io_addr(phy, addr), data);
 #ifdef DEBUG_PHY_IO
-	printf("0x%x (%p) -> 0x%x\n", addr, phy_io_addr(phy, addr), data);
+	printf("0x%06x,0x%x\n", addr, data);
 #endif
 }
 
@@ -81,7 +89,7 @@ static inline uint16_t phy_io_read16(uint16_t *phy, uint32_t addr)
 	uint16_t reg = in_le16(phy_io_addr(phy, addr));
 
 #ifdef DEBUG_PHY_IO
-	printf("R: 0x%x (%p) -> 0x%x\n", addr, phy_io_addr(phy, addr), reg);
+	printf("R: 0x%06x,0x%x\n", addr, reg);
 #endif
 
 	return reg;
@@ -188,6 +196,7 @@ static void prog_seq0bdly0(uint16_t *phy,
 	int ps_count[4];
 	int frq;
 	uint32_t addr;
+	uint8_t board_rev;
 	int lower_freq_opt = 0;
 
 	frq = input->basic.frequency >> 1;
@@ -200,6 +209,14 @@ static void prog_seq0bdly0(uint16_t *phy,
 	ps_count[1] = (frq >> 2) - lower_freq_opt; /* 1.0 * frq / 4 - lower_freq */
 	ps_count[2] = (frq << 1) +  (frq >> 1); /* 10.0 * frq / 4 */
 
+#ifdef  DDR_PLL_FIX
+	board_rev = get_board_rev();
+	if(board_rev == 1) {
+		ps_count[0] = 0x520; /* seq0bdly0 */
+		ps_count[1] = 0xa41; /* seq0bdly1 */
+		ps_count[2] = 0x668a; /* seq0bdly2 */
+	}
+#endif
 	if (frq > 266)
 		ps_count[3] = 44;
 	else if (frq > 200)
@@ -209,12 +226,23 @@ static void prog_seq0bdly0(uint16_t *phy,
 
 	addr = t_master | csr_seq0bdly0_addr;
 	phy_io_write16(phy, addr, ps_count[0]);
+
+	debug("seq0bdly0 = 0x%x\n", phy_io_read16(phy, addr));
+
 	addr = t_master | csr_seq0bdly1_addr;
 	phy_io_write16(phy, addr, ps_count[1]);
+
+	debug("seq0bdly1 = 0x%x\n", phy_io_read16(phy, addr));
+
 	addr = t_master | csr_seq0bdly2_addr;
 	phy_io_write16(phy, addr, ps_count[2]);
+
+	debug("seq0bdly2 = 0x%x\n", phy_io_read16(phy, addr));
+
 	addr = t_master | csr_seq0bdly3_addr;
 	phy_io_write16(phy, addr, ps_count[3]);
+
+	debug("seq0bdly3 = 0x%x\n", phy_io_read16(phy, addr));
 }
 
 /* Only RDIMM requires msg_blk */
@@ -341,12 +369,22 @@ static int phy_gen2_msg_init(void *msg_1d,
 		return -EINVAL;
 	}
 	msg_blk->pstate			= 0;
+
+	/*Enable quickRd2D, a substage of read deskew, to 1D training.*/
+	msg_blk->reserved00		= 0x20;
+
+	/*Enable High-Effort WrDQ1D.*/
+	msg_blk->reserved00             |= 0x40;
 	if (input->basic.dimm_type == LRDIMM)
 		msg_blk->sequence_ctrl	= 0x3f1f;
 	else
 		msg_blk->sequence_ctrl	= 0x031f;
 	msg_blk->phy_config_override	= 0;
+#ifdef DDR_PHY_DEBUG
+	msg_blk->hdt_ctrl		= 0x5;
+#else
 	msg_blk->hdt_ctrl		= 0xc9;
+#endif
 	msg_blk->msg_misc		= 0x0;
 	msg_blk->dfimrlmargin		= 0x1;
 	msg_blk->phy_vref		= input->vref ? input->vref : 0x61;
@@ -355,6 +393,7 @@ static int phy_gen2_msg_init(void *msg_1d,
 	msg_blk->cs_present_d1		= input->cs_d1;
 	if (input->mirror)
 		msg_blk->addr_mirror	= 0x0a;	/* odd CS are mirrored */
+	msg_blk->share2dvref_result	= 1;
 
 	msg_blk->acsm_odt_ctrl0		= input->odt[0];
 	msg_blk->acsm_odt_ctrl1		= input->odt[1];
@@ -362,7 +401,6 @@ static int phy_gen2_msg_init(void *msg_1d,
 	msg_blk->acsm_odt_ctrl3		= input->odt[3];
 	msg_blk->enabled_dqs = (input->basic.num_active_dbyte_dfi0 +
 				input->basic.num_active_dbyte_dfi1) * 8;
-	msg_blk->phy_cfg		= input->adv.is2ttiming;
 	msg_blk->x16present		= input->basic.dram_data_width == 0x10 ?
 					  msg_blk->cs_present : 0;
 	msg_blk->d4misc			= 0x1;
@@ -466,13 +504,21 @@ static int phy_gen2_msg_init(void *msg_1d,
 	/* below is different for 1D and 2D message block */
 	if (input->basic.train2d) {
 		memcpy(msg_blk_2d, msg_blk, sizeof(struct ddr4u1d));
+		/*High-Effort WrDQ1D is applicable to 2D traning also*/
+		msg_blk_2d->reserved00		|= 0x40;
 		msg_blk_2d->sequence_ctrl	= 0x0061;
 		msg_blk_2d->rx2d_train_opt	= 1;
 		msg_blk_2d->tx2d_train_opt	= 1;
 		msg_blk_2d->share2dvref_result	= 1;
 		msg_blk_2d->delay_weight2d	= 0x4;
 		msg_blk_2d->voltage_weight2d	= 0x1;
+		debug("rx2d_train_opt %d, tx2d_train_opt %d\n",
+				msg_blk_2d->rx2d_train_opt,
+				msg_blk_2d->tx2d_train_opt);
 	}
+
+	msg_blk->phy_cfg = ((msg_blk->mr3 & 0x8) || (msg_blk_2d->mr3 & 0x8)) ? 0
+				: input->adv.is2ttiming;
 
 	return 0;
 }
@@ -515,7 +561,10 @@ static void prog_atx_pre_drv_mode(uint16_t *phy,
 	atx_pre_n = input->adv.tx_slew_fall_ac;
 	atx_pre_p = input->adv.tx_slew_rise_ac;
 
-	if (input->basic.num_anib == 10 || input->basic.num_anib == 12 ||
+	if (input->basic.num_anib == 8) {
+		ck_anib_inst[0] = 1;
+		ck_anib_inst[1] = 1;
+	} else if (input->basic.num_anib == 10 || input->basic.num_anib == 12 ||
 	    input->basic.num_anib == 13) {
 		ck_anib_inst[0] = 4;
 		ck_anib_inst[1] = 5;
@@ -555,12 +604,14 @@ static void prog_dfi_rd_data_cs_dest_map(uint16_t *phy,
 					 const struct input *input,
 					 const struct ddr4lr1d *msg)
 {
+	const struct ddr4lr1d *msg_blk;
 	uint16_t dfi_xxdestm0 = 0;
 	uint16_t dfi_xxdestm1 = 0;
 	uint16_t dfi_xxdestm2 = 0;
 	uint16_t dfi_xxdestm3 = 0;
 	uint16_t dfi_rd_data_cs_dest_map;
 	uint16_t dfi_wr_data_cs_dest_map;
+
 
 #ifdef NXP_ERRATUM_A011396
 	/* Only apply to DDRC 5.05.00 */
@@ -570,26 +621,47 @@ static void prog_dfi_rd_data_cs_dest_map(uint16_t *phy,
 	}
 #endif
 
-	if (input->basic.dimm_type != LRDIMM)
-		return;
+	msg_blk = msg;
 
-	if (msg->cs_present_d1) {
-		dfi_xxdestm2 = 1;
-		dfi_xxdestm3 = 1;
+	switch (input->basic.dimm_type) {
+	case UDIMM:
+	case SODIMM:
+	case NODIMM:
+		if ((msg_blk->msg_misc & 0x40) != 0) {
+			dfi_rd_data_cs_dest_map = 0xa0;
+			dfi_wr_data_cs_dest_map = 0xa0;
+
+			phy_io_write16(phy,
+				t_master | csr_dfi_rd_data_cs_dest_map_addr,
+				dfi_rd_data_cs_dest_map);
+			phy_io_write16(phy,
+				t_master | csr_dfi_wr_data_cs_dest_map_addr,
+				dfi_wr_data_cs_dest_map);
+		}
+		break;
+	case LRDIMM:
+		if (msg->cs_present_d1) {
+			dfi_xxdestm2 = 1;
+			dfi_xxdestm3 = 1;
+		}
+
+		dfi_rd_data_cs_dest_map = dfi_xxdestm0 << csr_dfi_rd_destm0_lsb	|
+			dfi_xxdestm1 << csr_dfi_rd_destm1_lsb	|
+			dfi_xxdestm2 << csr_dfi_rd_destm2_lsb	|
+			dfi_xxdestm3 << csr_dfi_rd_destm3_lsb;
+		dfi_wr_data_cs_dest_map = dfi_xxdestm0 << csr_dfi_wr_destm0_lsb	|
+			dfi_xxdestm1 << csr_dfi_wr_destm1_lsb	|
+			dfi_xxdestm2 << csr_dfi_wr_destm2_lsb	|
+			dfi_xxdestm3 << csr_dfi_wr_destm3_lsb;
+		phy_io_write16(phy, t_master | csr_dfi_rd_data_cs_dest_map_addr,
+				dfi_rd_data_cs_dest_map);
+		phy_io_write16(phy, t_master | csr_dfi_wr_data_cs_dest_map_addr,
+				dfi_wr_data_cs_dest_map);
+
+		break;
+	default:
+		break;
 	}
-
-	dfi_rd_data_cs_dest_map = dfi_xxdestm0 << csr_dfi_rd_destm0_lsb	|
-			     dfi_xxdestm1 << csr_dfi_rd_destm1_lsb	|
-			     dfi_xxdestm2 << csr_dfi_rd_destm2_lsb	|
-			     dfi_xxdestm3 << csr_dfi_rd_destm3_lsb;
-	dfi_wr_data_cs_dest_map = dfi_xxdestm0 << csr_dfi_wr_destm0_lsb	|
-			     dfi_xxdestm1 << csr_dfi_wr_destm1_lsb	|
-			     dfi_xxdestm2 << csr_dfi_wr_destm2_lsb	|
-			     dfi_xxdestm3 << csr_dfi_wr_destm3_lsb;
-	phy_io_write16(phy, t_master | csr_dfi_rd_data_cs_dest_map_addr,
-		       dfi_rd_data_cs_dest_map);
-	phy_io_write16(phy, t_master | csr_dfi_wr_data_cs_dest_map_addr,
-		       dfi_wr_data_cs_dest_map);
 }
 
 static void prog_pll_ctrl(uint16_t *phy,
@@ -598,17 +670,22 @@ static void prog_pll_ctrl(uint16_t *phy,
 	uint32_t addr;
 	int pll_ctrl1 = 0x21; /* 000100001b */
 	int pll_ctrl4 = 0x17f; /* 101111111b */
+	int pll_test_mode = 0x24; /* 00100100b */
 
 	addr = t_master | csr_pll_ctrl1_addr;
 	phy_io_write16(phy, addr, pll_ctrl1);
 
 	debug("pll_ctrl1 = 0x%x\n", phy_io_read16(phy, addr));
 
+	addr = t_master | csr_pll_test_mode_addr;
+	phy_io_write16(phy, addr, pll_test_mode);
+
+	debug("pll_test_mode = 0x%x\n", phy_io_read16(phy, addr));
+
 	addr = t_master | csr_pll_ctrl4_addr;
 	phy_io_write16(phy, addr, pll_ctrl4);
 
 	debug("pll_ctrl4 = 0x%x\n", phy_io_read16(phy, addr));
-
 }
 
 static void prog_pll_ctrl2(uint16_t *phy,
@@ -635,6 +712,17 @@ static void prog_pll_ctrl2(uint16_t *phy,
 	phy_io_write16(phy, addr, pll_ctrl2);
 
 	debug("pll_ctrl2 = 0x%x\n", phy_io_read16(phy, addr));
+}
+
+static void prog_pll_pwr_dn(uint16_t *phy,
+			   const struct input *input)
+{
+	uint32_t addr;
+
+	addr = t_master | csr_pll_pwr_dn_addr;
+	phy_io_write16(phy, addr, 0);
+
+	debug("pll_pwrdn = 0x%x\n", phy_io_read16(phy, addr));
 }
 
 static void prog_ard_ptr_init_val(uint16_t *phy,
@@ -1216,6 +1304,39 @@ static void prog_dmipin_present(uint16_t *phy,
 	phy_io_write16(phy, addr, dmipin_present);
 }
 
+static void prog_dfi_phyupd(uint16_t *phy,
+			  const struct input *input)
+{
+	int dfiphyupd_dat;
+	uint32_t addr;
+
+	addr = t_master | (csr_dfiphyupd_addr);
+	dfiphyupd_dat = phy_io_read16(phy, addr) &
+				~csr_dfiphyupd_threshold_mask;
+
+	phy_io_write16(phy, addr, dfiphyupd_dat);
+}
+
+static void prog_cal_misc2(uint16_t *phy,
+			  const struct input *input)
+{
+	int cal_misc2_dat, cal_offsets_dat;
+	uint32_t addr;
+
+	addr = t_master | (csr_cal_misc2_addr);
+	cal_misc2_dat = phy_io_read16(phy, addr) |
+			(1 << csr_cal_misc2_err_dis);
+
+	phy_io_write16(phy, addr, cal_misc2_dat);
+
+
+	addr = t_master | (csr_cal_offsets_addr);
+	cal_offsets_dat = (phy_io_read16(phy, addr) & csr_cal_offset_pdc_mask)
+			| 0x9;
+
+	phy_io_write16(phy, addr, cal_offsets_dat);
+}
+
 static int c_init_phy_config(uint16_t **phy_ptr,
 			     unsigned int ip_rev,
 			     const struct input *input,
@@ -1223,6 +1344,7 @@ static int c_init_phy_config(uint16_t **phy_ptr,
 {
 	int i;
 	uint16_t *phy;
+	uint8_t board_rev;
 
 	for (i = 0; i < NUM_OF_DDRC; i++) {
 		phy = phy_ptr[i];
@@ -1236,6 +1358,16 @@ static int c_init_phy_config(uint16_t **phy_ptr,
 		prog_dfi_rd_data_cs_dest_map(phy, ip_rev, input, msg);
 		prog_pll_ctrl(phy, input);
 		prog_pll_ctrl2(phy, input);
+#ifdef  DDR_PLL_FIX
+		board_rev = get_board_rev();
+		debug("board_rev = %x\n", board_rev);
+		if (board_rev == 1) {
+			prog_pll_pwr_dn(phy, input);
+
+			/*Enable FFE aka TxEqualizationMode for rev1 SI*/
+			phy_io_write16(phy, 0x010048, 0x1);
+		}
+#endif
 		prog_ard_ptr_init_val(phy, input);
 		prog_dqs_preamble_control(phy, input);
 		prog_proc_odt_time_ctl(phy, input);
@@ -1256,6 +1388,8 @@ static int c_init_phy_config(uint16_t **phy_ptr,
 		prog_dbyte_misc_mode(phy, input, msg);
 		prog_master_x4config(phy, input);
 		prog_dmipin_present(phy, input, msg);
+		prog_dfi_phyupd(phy, input);
+		prog_cal_misc2(phy, input);
 	}
 
 	return 0;
@@ -1302,21 +1436,59 @@ static uint32_t get_mail(uint16_t *phy, int stream)
 	return mail;
 }
 
-static void decode_stream_message(uint16_t *phy)
+#ifdef DDR_PHY_DEBUG
+static const char * lookup_msg(uint32_t index, int train2d)
 {
-	uint32_t index;
-	uint32_t args[12] __unused;
-	int i, j;
+	int i;
+	int size;
+	const struct phy_msg *messages;
+	const char *ptr = NULL;
 
+	if (train2d) {
+		messages = messages_2d;
+		size = ARRAY_SIZE(messages_2d);
+	} else {
+		messages = messages_1d;
+		size = ARRAY_SIZE(messages_1d);
+	}
+	for (i = 0; i < size; i++) {
+		if (messages[i].index == index) {
+			ptr = messages[i].msg;
+			break;
+		}
+	}
+
+	return ptr;
+}
+#endif
+
+#define MAX_ARGS 32
+static void decode_stream_message(uint16_t *phy, int train2d)
+{
+	uint32_t index __unused;
+	__unused const char *format;
+	__unused uint32_t args[MAX_ARGS];
+	__unused int i;
+
+#ifdef DDR_PHY_DEBUG
 	index = get_mail(phy, 1);
-	if ((index & 0xffff) > 12)	/* up to 12 args so far */
+	if ((index & 0xffff) > MAX_ARGS)	/* up to MAX_ARGS args so far */
 		printf("Program error in %s\n", __func__);
-	for (i = 0; i < (index & 0xffff) && i < 12; i++)
+	for (i = 0; i < (index & 0xffff) && i < MAX_ARGS; i++)
 		args[i] = get_mail(phy, 1);
-	debug("0x%08x:\t", index);
-	for (j = 0; j < i; j++)
-		debug("0x%x\t", args[j]);
-	debug("\n");
+
+	format = lookup_msg(index, train2d);
+	if (format) {
+		printf("0x%08x: ", index);
+		printf(format, args[0], args[1], args[2], args[3], args[4],
+		       args[5], args[6], args[7], args[8], args[9], args[10],
+		       args[11], args[12], args[13], args[14], args[15],
+		       args[16], args[17], args[18], args[19], args[20],
+		       args[21], args[22], args[23], args[24], args[25],
+		       args[26], args[27], args[28], args[29], args[30],
+		       args[31]);
+	}
+#endif
 }
 
 static int wait_fw_done(uint16_t *phy, int train2d)
@@ -1361,7 +1533,7 @@ static int wait_fw_done(uint16_t *phy, int train2d)
 			mail = 0;
 			break;
 		case 0x8:
-			decode_stream_message(phy);
+			decode_stream_message(phy, train2d);
 			mail = 0;
 			break;
 		case 0x9:
@@ -1637,7 +1809,7 @@ static void parse_odt(const unsigned int val,
 
 int compute_ddr_phy(struct ddr_info *priv)
 {
-	const unsigned int clk = priv->clk;
+	const unsigned long clk = priv->clk;
 	const struct memctl_opt *popts = &priv->opt;
 	const struct ddr_conf *conf = &priv->conf;
 	const struct dimm_params *dimm_param = &priv->dimm;
@@ -1665,14 +1837,14 @@ int compute_ddr_phy(struct ddr_info *priv)
 	input.basic.num_dbyte = dimm_param->primary_sdram_width / 8 +
 				 dimm_param->ec_sdram_width / 8;
 	input.basic.num_active_dbyte_dfi0 = input.basic.num_dbyte;
-	input.basic.num_rank_dfi0 = dimm_param->n_ranks;
+	input.basic.num_rank_dfi0 = dimm_param->n_ranks + 1;
 	input.basic.dram_data_width = dimm_param->device_width;
-	input.basic.hard_macro_ver	= 3;
+	input.basic.hard_macro_ver	= 0xa;
 	input.basic.num_pstates	= 1;
 	input.basic.dfi_freq_ratio	= 1;
 	input.basic.num_anib		= 0xc;
 	input.basic.train2d		= popts->skip2d ? 0 : 1;
-	input.basic.frequency = (clk + 1000000) / 2000000;
+	input.basic.frequency = (int) (clk / 2000000ul);
 	debug("frequency = %dMHz\n", input.basic.frequency);
 	input.cs_d0 = conf->cs_on_dimm[0];
 #if DDRC_NUM_DIMM > 1

@@ -1,10 +1,11 @@
 /*
- * Copyright 2016-2018 NXP
+ * Copyright 2016-2019 NXP
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Author : York Sun <york.sun@nxp.com>
  *	Ruchika Gupta <ruchika.gupta@nxp.com>
+ *      Pankaj Gupta  <pankaj.gupta@nxp.com>
  */
 
 #ifndef __LSCH3_H_
@@ -21,6 +22,8 @@
 
 /* OCRAM */
 #define NXP_OCRAM_ADDR			0x18000000
+
+#define NXP_WDT1_BASE			0x0C000000
 
  // dcfg block register offsets and bitfields
 #define DCFG_PORSR1_OFFSET		0x00
@@ -77,9 +80,6 @@
 #define PMU_CLL2FLUSHSR_OFFSET        0x1118
 #define PMU_POWMGTCSR_OFFSET          0x4000
 #define PMU_POWMGTCSR_VAL             (1 << 20)
-#define PMU_IDLE_CLUSTER_MASK         0x2
-#define PMU_FLUSH_CLUSTER_MASK        0x2
-#define PMU_IDLE_CORE_MASK            0xfe
 
  /* secure register file offsets */
 #define CORE_HOLD_OFFSET		0x140
