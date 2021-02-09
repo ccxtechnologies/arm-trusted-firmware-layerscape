@@ -1,9 +1,9 @@
 /*
- * Copyright 2018 NXP
+ * Copyright 2021 CCX Technologies
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Author York Sun <york.sun@nxp.com>
+ * Charles Eidsness <charles@ccxtechnologies.com>
  */
 
 #include <platform_def.h>
@@ -20,12 +20,12 @@
 #include <utils_def.h>
 #include <errata.h>
 
-const struct ddr_cfg_regs static_1500 = {
+const struct ddr_cfg_regs static_2100 = {
 	.cs[0].bnds = 0xFF,
 	.cs[0].config = 0x80010322,
 	.cs[0].config_2 = 0x00,
 	.timing_cfg[0] = 0xFA770018,
-	.timing_cfg[1] = 0xE3EA9245,
+	.timing_cfg[1] = 0xE3EC9245,
 	.timing_cfg[2] = 0x00595197,
 	.timing_cfg[3] = 0x02101100,
 	.timing_cfg[4] = 0x00220002,
@@ -39,7 +39,7 @@ const struct ddr_cfg_regs static_1500 = {
 	.dq_map[1] = 0xD6336C2C,
 	.dq_map[2] = 0x0E4D4C0C,
 	.dq_map[3] = 0xB4000000,
-	.sdram_mode[0] = 0x01010625,
+	.sdram_mode[0] = 0x01010631,
 	.sdram_mode[1] = 0x00100000,
 	.sdram_mode[2] = 0x00,
 	.sdram_mode[3] = 0x00,
@@ -72,7 +72,7 @@ const struct ddr_cfg_regs static_1500 = {
 
 long long board_static_ddr(struct ddr_info *priv)
 {
-	memcpy(&priv->ddr_reg, &static_1500, sizeof(struct ddr_cfg_regs));
+	memcpy(&priv->ddr_reg, &static_2100, sizeof(struct ddr_cfg_regs));
 	return 0x100000000UL;
 }
 
